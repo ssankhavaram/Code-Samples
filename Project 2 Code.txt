@@ -1,0 +1,229 @@
+*Question 1 - Import data into SAS, keeping only period 1
+              Format SEX, BPMEDS, SMOKING, EBP, DIABETES 
+	      Create smoking status variable 
+	      Create EBP variable 
+	      Create variable for natural log of total cholesterol 
+	      Label variables;
+libname BS723 'C:\Users\ssankhav\Desktop\BS723';
+
+proc import datafile = 'C:\Users\ssankhav\Desktop\BS723\bs723_fhsproject2_final.xlsx' 
+	    	out      = BS723.bs723_fhsproject2
+            dbms     = xlsx; 
+	    	getnames = yes; 
+run; 
+
+proc format; 
+value SEXf 
+      1 = 'Male'
+      2 = 'Female'; 
+value BPMEDSf 
+      0 = 'Not currently using blood pressure medication' 
+      1 = 'Currently using blood pressure medication'; 
+value SMOKINGf 
+      0 = 'Not current smoker'
+      1 = 'Current smoker'; 
+value EBPf 
+      1 = 'Optimal Blood Pressure' 
+      2 = 'Normal Blood Pressure' 
+      3 = 'High Normal Blood Pressure'
+      4 = 'EBP Stage I' 
+      5 = 'EBP Stage II-IV'; 
+run; 
+    
+data BS723.project2; 
+set  BS723.bs723_fhsproject2; 
+     if PERIOD = 1; 
+format SEX SEXf. BPMEDS BPMEDSf. SMOKING SMOKINGf. EBP EBPf.; 
+if CIGPDAY = '.' then SMOKING = '.'; 
+     else if CIGPDAY = 0 then SMOKING = 0;  
+     else SMOKING = 1; 
+if DIABP = '.' or SYSBP = '.' then EBP = '.'; 
+     else if DIABP < 80 and SYSBP <120 then EBP = 1; 
+     else if 80 le DIABP < 85 or 120 le SYSBP < 130 then EBP = 2; 
+     else if 85 le DIABP < 90 or 130 le SYSBP < 140 then EBP = 3; 
+     else if 90 le DIABP < 100 or 140 le SYSBP <160 then EBP = 4; 
+     else if DIABP ge 100 or SYSBP ge 160 then EBP = 5; 
+logTOTCHOL = log(TOTCHOL); 
+label AGE = 'Age at Exam' 
+      BMI = 'Body Mass Index' 
+      BPMEDS = 'Anti-Hypertensive Medication at Exam'
+      CIGPDAY = 'Cigarettes Smoked Each Day' 
+      SMOKING = 'Current Smoking Status' 
+      DIABETES = 'History of Diabetes' 
+      DIABP = 'Diastolic Blood Pressure' 
+      PERIOD = 'Examination Cycle' 
+      RANDID = 'Participant ID' 
+      SEX = 'Participant Sex' 
+      SYSBP = 'Systolic Blood Pressure' 
+      TOTCHOL = 'Total Cholesterol' 
+      EBP = 'Elevated Blood Pressure Status' 
+      logTOTCHOL = 'Natural Log of Total Cholesterol'; 
+run; 
+
+*Question 2 - Are distributions of age, BMI, total cholesterol, logTOTCHOL symmetrical? 
+              Summary stats for age - cont. 
+                                hypertensive therapy - cat. 
+                                BMI - cont. 
+                                smoking status - cat. 
+                                diabetes - cat. 
+                                totchol - cont. 
+                                ALL ACROSS the four categories of BPE; 
+title 'Distribution of Continuous Variables - Question 2'; 
+proc gchart data = BS723.project2; 
+vbar AGE BMI TOTCHOL logTOTCHOL; 
+run; 
+quit;
+title;
+
+title 'Summary Statistics - Question 2'; 
+proc means data = BS723.project2 mean std; 
+var AGE BMI TOTCHOL; 
+class EBP; 
+run; 
+
+proc sort data = BS723.project2; 
+by EBP; 
+run; 
+
+proc freq data = BS723.project2; 
+tables BPMEDS SMOKING DIABETES; 
+by EBP; 
+run; 
+title; 
+
+*Question 3 - a) interaction of sex and smoking on logTOTCHOL 
+			  b) in women association of logTOTCHOL with 
+		         age - cont 
+		 		 diabetes - cat
+				 EBP - cat
+	      	  c) in women association of smoking with 
+		 		 age - cont
+				 diabetes - cat
+		 		 EBP - cat 
+			  d) Assess if age
+						   diabetes
+						   EBP 
+				 are confounders of association between smoking/logTOTCHOL; 
+			  
+title 'Relationship of Smoking, Sex, and Log of Total Cholesterol - Question 3a'; 
+proc reg data = BS723.project2; 
+model logTOTCHOL = SMOKING SEX; 
+run; 
+quit; 
+title;
+
+data project2_1; 
+set BS723.project2; 
+if SEX=2; 
+run; 
+
+title 'Relationship of Log of Total Cholesterol - Question 3b';
+proc reg data = project2_1; 
+model logTOTCHOL=AGE;
+model logTOTCHOL=DIABETES; 
+model logTOTCHOL=EBP; 
+run; 
+quit; 
+title;
+
+title 'Relationship of Smoking - Question 3c'; 
+proc logistic data = project2_1; 
+model SMOKING = AGE;
+run;
+quit; 
+ 
+proc logistic data=project2_1; 
+model SMOKING = DIABETES;
+run; 
+quit; 
+
+proc logistic data=project2_1; 
+model SMOKING = EBP; 
+run; 
+quit; 
+title; 
+
+title 'Assessing Confounders - Question 3d'; 
+proc corr data = project2_1; 
+var AGE logTOTCHOL; 
+run; 
+quit; 
+
+proc ttest data = project2_1; 
+class SMOKING; 
+var AGE; 
+run; 
+
+proc corr data = project2_1; 
+var DIABETES logTOTCHOL; 
+run; 
+quit; 
+
+proc ttest data = project2_1; 
+class SMOKING; 
+var DIABETES; 
+run; 
+
+proc corr data = project2_1; 
+var EBP logTOTCHOL; 
+run; 
+quit; 
+
+proc ttest data = project2_1; 
+class SMOKING; 
+var EBP; 
+run; 
+title; 
+
+
+*Question 4 - a) in women, association of smoking status w/ logTOTCHOL 
+	      b) in women, association of smoking status controlled for confounders from part 3d 
+	      ; 
+title 'Association Between Smoking and Logit of Total Cholesterol in Women'; 
+proc corr data = project2_1 pearson spearman fisher(biasadj=no) ; 
+var SMOKING logTOTCHOL; 
+run; 
+quit; 
+title;
+
+title 'Association Between Smoking and Logit of Total Cholesterol in Women - Controlled for Confounders'; 
+proc reg data = project2_1; 
+model logTOTCHOL = SMOKING AGE EBP; 
+run; 
+quit; 
+title; 
+
+*Question 5 - create EBPstage1plus
+	      multiple log regression, association between Stage 1 EBP and 
+							   age 
+			  				   sex
+							   diabetes
+							   smoking 
+	      ;
+
+data project2_2;
+set BS723.project2; 
+if EBP ge 4 then EBPstageplus1 = 1; 
+	else if EBP le 3 then EBPstage1plus = 0; 
+run; 
+ 
+proc logistic data = project2_2; 
+class DIABETES; 
+model EBPstage1plus = AGE DIABETES;
+run; quit;
+
+proc logistic data = project2_2; 
+class SEX; 
+model EBPstage1plus = AGE SEX;
+run; quit;
+ 
+proc logistic data = project2_2; 
+class SMOKING; 
+model EBPstage1plus = AGE SMOKING;
+run; quit;
+ 
+ 
+ 
+
+
+ 
