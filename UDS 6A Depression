@@ -1,0 +1,303 @@
+/*******************************************************
+
+   Table 6A:Selected Diagnoses and Services Rendered
+
+          Depression and other mood disorders
+
+********************************************************/
+
+declare @startdate as datetime
+
+declare @enddate as datetime
+
+set @startdate= '1/1/2020'
+
+set @enddate = '1/1/2021'
+
+ 
+
+select count (visits.pid) as visits,
+
+count (distinct visits.pid) as patients
+
+ 
+
+from
+
+ 
+
+(select distinct patientprofile.pid, patientprofile.medicalrecordnumber,
+
+cast(patientvisit.visit as date) as VisitDate,
+
+cast(ASSESSCODE.assessdate as date) as assessdate,
+
+cast(PROBCODE.db_create_date as date) as probdate,
+
+cast(Diag.visit as date) as diagvisits
+
+from patientprofile
+
+ 
+
+join patientvisit on patientprofile.patientprofileid=patientvisit.patientprofileid
+
+ 
+
+left join
+
+(select distinct patientprofile.pid, patientprofile.patientprofileid,assess.clinicaldate as assessdate
+
+            from patientprofile
+
+            join problem on patientprofile.pid=problem.pid
+
+            join assess on problem.sprid=assess.sprid
+
+            left join MasterDiagnosis as ICD10 on problem.icd10masterdiagnosisid=ICD10.masterdiagnosisid
+
+           
+
+            where            
+
+            (icd10.code like '%F30%'
+
+              or icd10.code like '%F31%'
+
+              or icd10.code like '%F32%'
+
+              or icd10.code like '%F33%'
+
+              or icd10.code like '%F34%'
+
+              or icd10.code like '%F35%'
+
+              or icd10.code like '%F36%'
+
+              or icd10.code like '%F37%'
+
+              or icd10.code like '%F38%'
+
+              or icd10.code like '%F39%')
+
+             
+
+            and assess.clinicaldate between @startdate and @enddate
+
+--            and problem.xid=1000000000000000000
+
+--            and problem.change in (1,2)
+
+            --CHANGE: REMOVED; REASON: RESOLVED - manually removed by care team)
+
+            and ((problem.change=0 and stopreason ='s' and problem.stopdate >='1/1/2020')
+
+            --CHANGE: EDITED PEN; REASON: REFINED - manually replaced problem by care team (i.e. in pregnancy, moving from 1st trimester to 2nd)
+
+            OR (problem.change=1 and stopreason ='f' and problem.db_updated_date>='1/1/2020') --for refined problems, the stopdate is 12/21/4700
+
+            --THESE ARE EXAMPLES WHERE STOPDATE WAS PREENTERED AND PROBLEM WAS REMOVED AUTOMATICALLY (stopreason is null or '' in this case)
+
+            or (problem.change=2 and (stopreason is null or stopreason='') and problem.stopdate>='1/1/2020'))
+
+ 
+
+            and problem.db_create_date <@enddate
+
+            and  NOT (problem.qualifier='? of'
+
+                                        or problem.qualifier='Fh of'
+
+                                        or problem.qualifier='R/O'
+
+                                        or problem.qualifier='Rs of'
+
+                                        or problem.qualifier='Hx of')
+
+                                        ) "ASSESSCODE"
+
+ 
+
+  on patientvisit.patientprofileid=ASSESSCODE.patientprofileid
+
+   and cast(patientvisit.visit as date)=cast(ASSESSCODE.assessdate as date)
+
+  
+
+ 
+
+left join
+
+(select distinct patientprofile.pid, patientprofile.patientprofileid, problem.db_create_date
+
+            from patientprofile
+
+            join problem on patientprofile.pid=problem.pid          
+
+            left join MasterDiagnosis as ICD10 on problem.icd10masterdiagnosisid=ICD10.masterdiagnosisid           
+
+            where
+
+             (icd10.code like '%F30%'
+
+              or icd10.code like '%F31%'
+
+              or icd10.code like '%F32%'
+
+              or icd10.code like '%F33%'
+
+              or icd10.code like '%F34%'
+
+              or icd10.code like '%F35%'
+
+              or icd10.code like '%F36%'
+
+              or icd10.code like '%F37%'
+
+              or icd10.code like '%F38%'
+
+              or icd10.code like '%F39%')
+
+             
+
+--            and problem.xid=1000000000000000000
+
+--            and problem.change in (1,2)
+
+            --CHANGE: REMOVED; REASON: RESOLVED - manually removed by care team)
+
+            and ((problem.change=0 and stopreason ='s' and problem.stopdate >='1/1/2020')
+
+            --CHANGE: EDITED PEN; REASON: REFINED - manually replaced problem by care team (i.e. in pregnancy, moving from 1st trimester to 2nd)
+
+            OR (problem.change=1 and stopreason ='f' and problem.db_updated_date>='1/1/2020') --for refined problems, the stopdate is 12/21/4700
+
+            --THESE ARE EXAMPLES WHERE STOPDATE WAS PREENTERED AND PROBLEM WAS REMOVED AUTOMATICALLY (stopreason is null or '' in this case)
+
+            or (problem.change=2 and (stopreason is null or stopreason='') and problem.stopdate>='1/1/2020'))
+
+ 
+
+            and problem.db_create_date <@enddate
+
+            and  NOT (problem.qualifier='? of'
+
+                                        or problem.qualifier='Fh of'
+
+                                        or problem.qualifier='R/O'
+
+                                        or problem.qualifier='Rs of'
+
+                                        or problem.qualifier='Hx of')
+
+                                        ) "PROBCODE"
+
+ 
+
+  on patientvisit.patientprofileid=PROBCODE.patientprofileid
+
+   and cast(patientvisit.visit as date)=cast(PROBCODE.db_create_date as date)
+
+  
+
+left join
+
+(select patientprofile.pid, patientprofile.patientprofileid, patientvisit.visit, patientvisit.patientvisitid, patientvisitdiags.code
+
+              from patientprofile
+
+              join patientvisit on patientprofile.patientprofileid=patientvisit.patientprofileid
+
+              join PatientVisitDiags on patientvisit.patientvisitid=PatientVisitDiags.PatientVisitId
+
+             
+
+              left join dbo.Diagnosis  as ICD10DX
+
+                ON ICD10DX.DiagnosisId = dbo.PatientVisitDiags.DiagnosisId
+
+              where              
+
+                 icd10dx.codetype = 8
+
+                 and (patientvisitdiags.code like '%F30%'
+
+                    or patientvisitdiags.code like '%F31%'
+
+                    or patientvisitdiags.code like '%F32%'
+
+                    or patientvisitdiags.code like '%F33%'
+
+                    or patientvisitdiags.code like '%F34%'
+
+                    or patientvisitdiags.code like '%F35%'
+
+                    or patientvisitdiags.code like '%F36%'
+
+                    or patientvisitdiags.code like '%F37%'
+
+                    or patientvisitdiags.code like '%F38%'
+
+                    or patientvisitdiags.code like '%F39%')
+
+                   
+
+              and patientvisit.visit between @startdate and @enddate
+
+              and (PatientVisit.description is null or PatientVisit.description not like'%VOID%')) "Diag"
+
+   on patientvisit.patientvisitid=Diag.patientvisitid
+
+ 
+
+  
+
+  
+
+  where  patientvisit.visit between @startdate and @enddate
+
+  and (PatientVisit.description is null or PatientVisit.description not like'%VOID%')
+
+ 
+
+  and ((patientvisit.patientprofileid=ASSESSCODE.patientprofileid and cast(patientvisit.visit as date)=cast(ASSESSCODE.assessdate as date))
+
+  OR (patientvisit.patientprofileid=PROBCODE.patientprofileid and cast(patientvisit.visit as date)=cast(PROBCODE.db_create_date as date))
+
+  OR patientvisit.patientvisitid=Diag.patientvisitid)
+
+ 
+
+  /*remove test patients*/
+
+and patientprofile.last <> 'FenwayTest'
+
+and patientprofile.patientid not like '%t%'
+
+and patientprofile.searchname not like '%<MRG>%'
+
+and patientprofile.searchname not like '%OPEP%'
+
+and patientprofile.last <> 'piggy'
+
+and patientprofile.last <> 'frog'
+
+and patientprofile.last <> 'bogus'
+
+and patientprofile.searchname not like '%anonymous%'
+
+and patientprofile.searchname not like '%donotuse%'
+
+and patientprofile.searchname not like '%dontuse%'
+
+and patientprofile.searchname not like '%do%not%use%'
+
+and patientprofile.searchname <> 'A, A A'
+
+and patientprofile.searchname not like '%zzz%'
+
+--group by patientprofile.pid, patientprofile.medicalrecordnumber
+
+ 
+
+) "Visits"
