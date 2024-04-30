@@ -1,0 +1,413 @@
+Declare @indexperiodstart as date
+
+Declare @indexperiodend as date
+
+Declare @remissionperiodend as date
+
+Declare @UDSyearstart as date
+
+Declare @UDSyearend as date
+
+declare @birthdateend as date
+
+Set @indexperiodstart = '11/1/2018'
+
+Set @indexperiodend = '11/1/2019'
+
+Set @remissionperiodend = '11/1/2020'
+
+Set @UDSyearstart = '1/1/2020'
+
+Set @UDSyearend = '1/1/2021'
+
+set @birthdateend = '1/1/2008'
+
+ 
+
+select distinct
+
+    patientprofile.pid,
+
+    patientprofile.medicalrecordnumber,
+
+    Doctorfacility.listname,
+
+    FirstPos.obsdate as indexevent,
+
+    FirstPos.obsvalue as indexscore,
+
+    case when screen12.pid=patientprofile.pid then 'screened' else null end as 'Screened 10-14 mos later' ,
+
+    min(Screen12.obsvalue) as fu_score,
+
+    min(FirstRemiss.obsdate) as FirstRemissDate
+
+ 
+
+from patientprofile
+
+ 
+
+left join DoctorFacility on Patientprofile.DoctorID=DoctorFacility.DoctorFacilityid
+
+ 
+
+join (select distinct problem.pid
+
+            from problem
+
+            left join MasterDiagnosis as ICD10 on problem.icd10masterdiagnosisid=ICD10.masterdiagnosisid
+
+            where ((icd10.code like '%f32%'
+
+                    or icd10.code like '%f33%'
+
+                    or icd10.code like '%f34.1%')
+
+                and problem.xid=1000000000000000000
+
+                and problem.change not in (0,4,10)
+
+                and (problem.db_create_date <= @indexperiodend
+
+                  or problem.onsetdate <= @indexperiodend) --problem began BEFORE or DURING the timeframe
+
+                and (problem.stopdate is null or problem.stopdate>=@indexperiodstart) --problem is ACTIVE (null stopdate) OR was active DURING the timeframe (stopdate during or after timeframe)
+
+                and NOT (problem.qualifier='? of'
+
+                          or problem.qualifier='Fh of'
+
+                          or problem.qualifier='R/O'
+
+                          or problem.qualifier='Rs of'
+
+                          or problem.qualifier='Hx of'))) DepressionDx on DepressionDx.pid=patientprofile.pid
+
+ 
+
+join (select distinct obs.pid, obs.obsdate, obs.obsvalue
+
+      from obs
+
+      join (select distinct obs.pid, min(obs.obsdate)as MinPos
+
+            from obs
+
+            where obs.hdid in (53333,112255,292381)
+
+              and obs.obsdate  between @indexperiodstart and @indexperiodend --first positive score in index period
+
+              and obs.XID=1000000000000000000
+
+              and obs.CHANGE not in (0,4,10)
+
+              and obs.obsvalue not in ('0','1','2','3','4','5','6','7','8','9')
+
+              and obs.obsvalue not like '%done%'
+
+            group by obs.pid) MinPos on MinPos.pid=obs.pid and MinPos.MinPos=obs.obsdate
+
+    
+
+      where obs.hdid in (53333,112255,292381)
+
+      and obs.obsdate between  @indexperiodstart and @indexperiodend
+
+      and obs.XID=1000000000000000000
+
+      and obs.CHANGE not in (0,4,10)
+
+      and obs.obsvalue not in ('0','1','2','3','4','5','6','7','8','9')
+
+      and obs.obsvalue not like '%done%') FirstPos on FirstPos.pid=patientprofile.pid
+
+     
+
+left join (select distinct obs.pid, obs.obsdate, cast(obsvalue as int) obsvalue
+
+      from obs
+
+      
+
+      where obs.hdid in (53333,112255,292381)
+
+      and obs.obsdate between @indexperiodstart and @remissionperiodend
+
+      and obs.XID=1000000000000000000
+
+      and obs.CHANGE not in (0,4,10)
+
+      and obs.obsvalue not like '%done%') Screen12 on Screen12.pid=patientprofile.pid
+
+      and datediff(mm,FirstPos.obsdate,Screen12.obsdate) between 10 and 14 
+
+      
+
+left join (select distinct obs.pid, obs.obsdate
+
+      from obs
+
+     
+
+      where obs.hdid in (53333,112255,292381)
+
+      and obs.obsdate between @indexperiodstart and @remissionperiodend
+
+      and obs.XID=1000000000000000000
+
+      and obs.CHANGE not in (0,4,10)
+
+      and obs.obsvalue in ('0','1','2','3','4')
+
+      and obs.obsvalue not like '%done%') FirstRemiss on FirstRemiss.pid=patientprofile.pid 
+
+      and datediff(mm,FirstPos.obsdate,FirstRemiss.obsdate) between 10 and 14
+
+ 
+
+        
+
+where patientprofile.birthdate<=@birthdateend --birthdate earlier than max birthdate in measure
+
+ 
+
+and exists (SELECT DISTINCT 1                 
+
+                FROM Appointments
+
+                LEFT JOIN ApptType ON Appointments.ApptTypeId = ApptType.ApptTypeId
+
+                left join doctorfacility on Appointments.DoctorId = DoctorFacility.DoctorFacilityId
+
+                WHERE PatientProfile.PatientProfileId = Appointments.OwnerId
+
+                  and Appointments.ApptKind = 1
+
+                  AND Appointments.apptstart between @UDSyearstart and @UDSyearend --visit in UDS year
+
+                  AND dbo.age(PatientProfile.birthdate,Appointments.apptstart)>= 12 --patient was 12 or order on date of visit
+
+                  and appointments.ApptStatusMId in (314,-920)   
+
+                            and appointments.facilityid in (3,5,10,4708,4709,4710)
+
+                            and ((ApptType.[name] like 'Med %'
+
+                                OR ApptType.[name] like 'Medical%'
+
+                                OR ApptType.[name] like 'CPE%'
+
+                                or appttype.[name] like '%hra%'
+
+                                OR ApptType.[name] like '%kass%'
+
+                                OR ApptType.[name] like 'new pt%'
+
+                                OR ApptType.[name] like '%emer%'
+
+                                OR ApptType.[name] like 'established pt%'
+
+                                OR ApptType.[name] like '%fp est%'
+
+                                OR ApptType.[name] like 'same%'
+
+                                OR appttype.[name] like 'MAT%'
+
+                                OR appttype.[name] like 'OB %'
+
+                                or appttype.[name] like '%gyn%'
+
+                                OR appttype.[name] = 'OMT%'
+
+                                OR ApptType.[name] = 'walk-in'
+
+                                OR ApptType.[name] = 'Walk In - 20'
+
+                                OR ApptType.[name] = 'WalkIn - New'
+
+                                OR ApptType.name like '%Phone Visit - 20%'
+
+                                OR ApptType.name like '%Phone Visit - 40%'
+
+                                or appttype.name like '%video%medical%'
+
+                                or appttype.name like '%pedi%'
+
+                                or appttype.name like '%video%same%day%'
+
+                                or appttype.name like '%video%cpe%'
+
+                                or appttype.[name] like '%hospital%'
+
+                                or appttype.name like '%video%OB%'
+
+                                or appttype.name like '%Phone Visit - 30%'
+
+                                or appttype.name like '%Phone Visit - 60%'
+
+                                or appttype.name like '%youth gender%'
+
+                                or (appttype.name like '%video/phone%' and appttype.name not like '%psych%')
+
+                                or appttype.name like '%well child%'
+
+                                or appttype.name like '%Phone Visit - 45%'
+
+                                or appttype.name like '%pulm%'
+
+                                or appttype.name like '%video%ID %'
+
+                                or appttype.name like 'ID %'
+
+                                or appttype.name like '%nurs%'
+
+                                or appttype.name like '%podia%'
+
+                                or appttype.name like '%derma%'
+
+                                or appttype.name like '%endocrin%'
+
+                                or appttype.name like '%renal%'
+
+                                or appttype.name like '%contraception%'
+
+                                or appttype.name like 'IUD %'
+
+                                or appttype.name like '%colpo%'
+
+                                or appttype.name like '%testopel%'
+
+                                or appttype.name like '%STD%provider%'
+
+                                or appttype.name like '%implant%'
+
+                                or appttype.name like '%prep%STD%')
+
+                                or (appttype.[name] is null and (doctorfacility.suffix like 'MD%'
+
+                                                                              or doctorfacility.suffix like 'DO%'
+
+                                                                              or doctorfacility.suffix like 'NP%'
+
+                                                                              or doctorfacility.suffix like 'PA%'
+
+                                                                              or doctorfacility.suffix like 'DO%')))
+
+                                        and (Appointments.DoctorId not in (1054,1099,4071,4108,4290,4396,4684,4775,2977,3840)
+
+                                        or appointments.doctorid is null))
+
+  /*** eliminate those who have  a diagnosis of bipolar disorder, personality disorder, schizophrenia, psychotic disorder or pervasive developmental disorder */
+
+ 
+
+ and not exists (select distinct problem.pid
+
+                                        from problem
+
+                                        left join MasterDiagnosis as ICD10 on problem.icd10masterdiagnosisid=ICD10.masterdiagnosisid
+
+                                        where problem.pid=patientprofile.pid
+
+                                        and (icd10.code like '%f31%'
+
+                                              or icd10.code like '%f60%'
+
+                                              or icd10.code like '%f20%'
+
+                                              or icd10.code like '%f21%'
+
+                                              or icd10.code like '%f22%'
+
+                                              or icd10.code like '%f23%'
+
+                                              or icd10.code like '%f24%'
+
+                                              or icd10.code like '%f25%'
+
+                                              or icd10.code like '%f28%'
+
+                                              or icd10.code like '%f29%'
+
+                                              or icd10.code like '%f84.9%'
+
+                                              or icd10.code in ('F06.0','F06.2','F10.151','F12.951','F15.14',
+
+                                                                'F15.150','F15.159','F15.951','F15.959','F19.150',
+
+                                                                'F19.151','F19.94','F19.950','F19.951',
+
+                                                                'F30.11','F30.12','F30.13','F30.2','F30.3','F34.0')
+
+                                              or ((problem.description like '%BIPOLAR%' or problem.description like '%PERSONALITY%DISORDER%' or problem.description like '%SCHIZOPHRENIA%'
+
+                                              or problem.description like '%PSYCHOTIC%DISORDER%' or problem.description like '%PERVASIVE%DEVELOPMENTAL%DISORDER%')
+
+                                              and problem.description not like 'R/O%' and problem.description not like '%history%of%' and problem.description not like '%hx%of%'
+
+                                              and problem.description not like '%question%of%'))
+
+                                        and problem.xid=1000000000000000000
+
+                                        and problem.change not in (0,4,10)
+
+                                        and (problem.db_create_date<=@UDSyearend or problem.onsetdate<=@UDSyearend) --problem started before end of UDS year
+
+                                        and (problem.stopdate is null or problem.stopdate>'1/1/2021') --problem is active at end of UDS year
+
+                                        and NOT (problem.qualifier='? of'
+
+                                                      or problem.qualifier='Fh of'
+
+                                                      or problem.qualifier='R/O'
+
+                                                      or problem.qualifier='Rs of'
+
+                                                      or problem.qualifier='Hx of'))
+
+                                                     
+
+  
+
+ /*Remove test patients*/
+
+and patientprofile.last <> 'FenwayTest'
+
+and patientprofile.patientid not like '%t%'
+
+and patientprofile.searchname not like '%<MRG>%'
+
+and patientprofile.searchname not like '%OPEP%'
+
+and patientprofile.last <> 'piggy'
+
+and patientprofile.last <> 'frog'
+
+and patientprofile.last <> 'bogus'
+
+and patientprofile.searchname not like '%anonymous%'
+
+and patientprofile.searchname not like '%donotuse%'
+
+and patientprofile.searchname not like '%dontuse%'
+
+and patientprofile.searchname not like '%do%not%use%'
+
+and patientprofile.searchname <> 'A, A A'
+
+and patientprofile.searchname not like '%zzz%'
+
+ 
+
+group by patientprofile.pid,
+
+    patientprofile.medicalrecordnumber,
+
+    Doctorfacility.listname,
+
+    FirstPos.obsdate,
+
+    FirstPos.obsvalue,
+
+    case when screen12.pid=patientprofile.pid then 'screened' else null end
